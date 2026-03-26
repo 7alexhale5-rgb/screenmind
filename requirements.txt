@@ -1,0 +1,7 @@
+# Core dependencies
+fastmcp>=2.0.0
+
+# Optional — graceful degradation if missing
+# scikit-image    # SSIM-based frame deduplication
+# pytesseract     # OCR text extraction from frames
+# Pillow          # Image handling for OCR (required by pytesseract)
