@@ -2,6 +2,8 @@
 
 Local MCP server that gives Claude Code behavioral context from screen recordings — keyframes, OCR text, and temporal timelines from interaction sequences.
 
+Supports local recordings and **URLs from YouTube, Instagram, Twitter/X, TikTok, and 1000+ other sites** via yt-dlp.
+
 ## Quick Start
 
 ```bash
@@ -30,6 +32,23 @@ screenmind_watch file_path="/path/to/recording.mov" focus="watch the error dialo
 # Re-examine a specific time range
 screenmind_watch file_path="/path/to/recording.mov" start_time=5.0 end_time=15.0
 ```
+
+### Watch a URL
+
+Pass any video URL directly — YouTube, Instagram Reels, TikTok, Twitter/X, and more.
+
+```
+# YouTube
+screenmind_watch file_path="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+# Instagram Reel
+screenmind_watch file_path="https://www.instagram.com/reel/ABC123/"
+
+# With focus
+screenmind_watch file_path="https://youtube.com/watch?v=..." focus="watch the demo at 2:30"
+```
+
+Videos are downloaded to `~/.screenmind/downloads/` and processed like local files. Requires `yt-dlp` (`brew install yt-dlp`).
 
 ### Record your screen
 
@@ -99,6 +118,7 @@ Processed frames persist at `~/.screenmind/sessions/<session_id>/`. Old sessions
 **Required:** Python 3.10+, ffmpeg, ffprobe
 
 **Optional (graceful degradation):**
+- yt-dlp — URL downloads from YouTube, Instagram, etc. (without it, only local files work)
 - scikit-image — SSIM frame deduplication (without it, all interval frames are kept)
 - pytesseract + Pillow — OCR text extraction (without it, no text in reports)
 - tesseract — OCR engine binary (installed via Homebrew)

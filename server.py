@@ -11,6 +11,7 @@ import shutil
 import signal
 import subprocess
 import time
+import urllib.parse
 from pathlib import Path
 from typing import Optional
 
@@ -466,6 +467,55 @@ def _cleanup_old_sessions(max_kept: int) -> None:
         shutil.rmtree(old, ignore_errors=True)
 
 
+def _is_url(s: str) -> bool:
+    """Check if a string looks like a URL."""
+    parsed = urllib.parse.urlparse(s)
+    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+
+
+def _download_url(url: str) -> str:
+    """Download a video from a URL using yt-dlp. Returns local file path.
+
+    Supports YouTube, Instagram, Twitter/X, TikTok, and 1000+ other sites.
+    Falls back to direct download if yt-dlp is not available.
+    """
+    yt_dlp = _find_binary("yt-dlp")
+    if not yt_dlp:
+        raise RuntimeError(
+            "yt-dlp not found. Install it: brew install yt-dlp"
+        )
+
+    downloads_dir = SCREENMIND_DIR / "downloads"
+    downloads_dir.mkdir(parents=True, exist_ok=True)
+
+    output_template = str(downloads_dir / "%(title).80s_%(id)s.%(ext)s")
+
+    cmd = [
+        yt_dlp,
+        "--no-playlist",
+        "--merge-output-format", "mp4",
+        "-o", output_template,
+        "--print", "after_move:filepath",
+        "--no-simulate",
+        url,
+    ]
+
+    result = subprocess.run(
+        cmd, capture_output=True, text=True, timeout=300
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"yt-dlp failed: {result.stderr.strip()}")
+
+    # yt-dlp --print after_move:filepath gives us the final path
+    downloaded_path = result.stdout.strip().splitlines()[-1]
+    if not os.path.exists(downloaded_path):
+        raise RuntimeError(
+            f"Download reported success but file not found: {downloaded_path}"
+        )
+
+    return downloaded_path
+
+
 def _find_latest_recording(config: dict) -> Optional[str]:
     """Find the most recent recording in capture_dir matching file_patterns."""
     capture_dir = Path(config["capture_dir"]).expanduser()
@@ -508,7 +558,8 @@ def screenmind_watch(
     """Process a screen recording into keyframes + OCR + timeline.
 
     Args:
-        file_path: Path to recording. If omitted, uses the latest recording in capture_dir.
+        file_path: Path to recording OR a URL (YouTube, Instagram, Twitter/X, TikTok, etc.).
+            If omitted, uses the latest recording in capture_dir.
         focus: Optional context hint (e.g. "watch the error dialog" or "track the form flow").
         start_time: Start time in seconds to examine a specific segment.
         end_time: End time in seconds to examine a specific segment.
@@ -520,14 +571,19 @@ def screenmind_watch(
     """
     config = _load_config()
 
-    # Resolve video file
-    if file_path:
+    # Resolve video file — supports local paths and URLs
+    if file_path and _is_url(file_path):
+        try:
+            video_path = _download_url(file_path)
+        except RuntimeError as e:
+            return f"Download failed: {e}"
+    elif file_path:
         video_path = os.path.expanduser(file_path)
     else:
         video_path = _find_latest_recording(config)
 
     if not video_path or not os.path.exists(video_path):
-        return "No recording found. Provide a file_path or place a recording in your capture_dir."
+        return "No recording found. Provide a file_path (local path or URL) or place a recording in your capture_dir."
 
     # Get metadata
     meta = _get_video_metadata(video_path)
