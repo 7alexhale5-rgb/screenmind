@@ -8,19 +8,21 @@ See also: [`USAGE.md`](./USAGE.md) for usage examples, [`ARCHITECTURE.md`](./ARC
 
 ## Settings at a glance
 
-| Key                         | Default                       | What it controls                                                                           |
-| --------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------ |
-| `capture_dir`               | `"~/Desktop"`                 | Where ScreenMind looks for recordings and writes new ones from `screenmind_record_start`.  |
-| `file_patterns`             | `["*.mov", "*.mp4", "*.mkv"]` | Glob patterns used by `screenmind_list` and the "latest recording" auto-pick.              |
-| `max_recording_duration`    | `120`                         | Hard cap (seconds) on `screenmind_record_start` runs.                                      |
-| `default_max_frames`        | `15`                          | Frame budget per `screenmind_watch` call, before any per-call override.                    |
-| `frame_quality`             | `80`                          | JPEG quality target (1–100) for extracted frames.                                          |
-| `frame_max_width`           | `1280`                        | Max width (px) for extracted frames. Aspect ratio preserved.                               |
-| `dedup_threshold`           | `0.95`                        | SSIM similarity above which two consecutive frames count as duplicates and one is dropped. |
-| `scene_change_threshold`    | `0.3`                         | ffmpeg `select='gt(scene,T)'` threshold for detecting scene cuts.                          |
-| `ocr_enabled`               | `true`                        | Whether to run OCR on kept frames. Off → faster runs, no `**Visible text:**` blocks.       |
-| `avfoundation_screen_index` | `"1"`                         | macOS screen device index used by `screenmind_record_start`.                               |
-| `max_sessions_kept`         | `20`                          | How many session directories to keep under `~/.screenmind/sessions/`. Oldest pruned.       |
+| Key                           | Default                       | What it controls                                                                           |
+| ----------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------ |
+| `capture_dir`                 | `"~/Desktop"`                 | Where ScreenMind looks for recordings and writes new ones from `screenmind_record_start`.  |
+| `file_patterns`               | `["*.mov", "*.mp4", "*.mkv"]` | Glob patterns used by `screenmind_list` and the "latest recording" auto-pick.              |
+| `max_recording_duration`      | `120`                         | Hard cap (seconds) on `screenmind_record_start` runs.                                      |
+| `default_max_frames`          | `15`                          | Frame budget per `screenmind_watch` call, before any per-call override.                    |
+| `frame_quality`               | `80`                          | JPEG quality target (1–100) for extracted frames.                                          |
+| `frame_max_width`             | `1280`                        | Max width (px) for extracted frames. Aspect ratio preserved.                               |
+| `dedup_threshold`             | `0.95`                        | SSIM similarity above which two consecutive frames count as duplicates and one is dropped. |
+| `scene_change_threshold`      | `0.3`                         | ffmpeg `select='gt(scene,T)'` threshold for detecting scene cuts.                          |
+| `ocr_enabled`                 | `true`                        | Whether to run OCR on kept frames. Off → faster runs, no `**Visible text:**` blocks.       |
+| `audio_transcription_enabled` | `true`                        | Whether to extract audio and run Whisper transcription during `screenmind_watch`.          |
+| `whisper_model`               | `"tiny.en"`                   | faster-whisper model name. Bigger = slower but more accurate.                              |
+| `avfoundation_screen_index`   | `"1"`                         | macOS screen device index used by `screenmind_record_start`.                               |
+| `max_sessions_kept`           | `20`                          | How many session directories to keep under `~/.screenmind/sessions/`. Oldest pruned.       |
 
 ---
 
@@ -154,6 +156,24 @@ The number in brackets is the index. Set it as a string in the config:
 - **What:** Maximum session directories kept under `~/.screenmind/sessions/`. After each `screenmind_watch` run, anything beyond this count is deleted, oldest first by mtime.
 - **When to change:** You want more session history for re-reading old reports (raise to 50–100), or you're tight on disk and want to keep less (drop to 5).
 - **Tuning:** Pruning only happens during a `screenmind_watch` run — it does not run on a schedule. If sessions pile up between runs, that's expected. Manually delete with `rm -rf ~/.screenmind/sessions/*` if you need to free space immediately.
+
+---
+
+## `audio_transcription_enabled`
+
+- **Default:** `true`
+- **What:** Toggles audio extraction (ffmpeg) + transcription (faster-whisper) inside `screenmind_watch`. When `false`, the report omits the `## Audio Transcript` section regardless of whether faster-whisper is installed.
+- **When to change:** Set to `false` when you only care about the visual timeline (UI flows without dialog), or when faster-whisper is installed but you want to skip the per-call latency hit.
+- **Tuning:** Even with this `true`, transcription degrades gracefully: ffmpeg returns no audio stream → "no audio stream" line; faster-whisper not installed → "unavailable" line; everything else works.
+
+---
+
+## `whisper_model`
+
+- **Default:** `"tiny.en"`
+- **What:** Model name passed to `faster_whisper.WhisperModel(...)`. The model is downloaded on first use and cached on disk by faster-whisper itself.
+- **When to change:** You want better accuracy on accented speech or technical terms (try `"base.en"` or `"small.en"`), or you have GPU acceleration set up and want to use a larger multilingual model.
+- **Tuning:** First call with a new model name downloads the weights (`tiny.en` ≈75 MB, `base.en` ≈140 MB, `small.en` ≈460 MB). Subsequent calls in the same server process reuse a cached in-memory model — no reload cost. The server defaults to CPU `int8` compute for portability; edit `_get_whisper_model` in `server.py` if you need GPU.
 
 ---
 
