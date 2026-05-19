@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ScreenMind — new-recording notification launch agent (template)
+
+  WHAT IT DOES
+    Watches ~/Desktop for filesystem changes via launchd WatchPaths. When a
+    new screen recording (.mov / .mp4 / .mkv) lands there, runs
+    new-recording-notify.sh, which compares mtimes against a state file and
+    fires a macOS notification ("ScreenMind — New recording detected").
+    Tell Claude Code "/watch" when you see the notification.
+
+  INSTALL
+    1. Copy this template to the user LaunchAgents directory:
+         cp com.screenmind.new-recording-notify.plist.template \
+            ~/Library/LaunchAgents/com.screenmind.new-recording-notify.plist
+    2. Replace placeholders in the copied file:
+         __SCREENMIND_REPO__  → absolute path to this repo
+                                (e.g. /Users/yourname/Projects/ideas/screenmind)
+         __HOME__             → your absolute home directory
+                                (e.g. /Users/yourname)
+       Quick sed (adjust paths to taste):
+         sed -i '' \
+           -e "s|__SCREENMIND_REPO__|$PWD|g" \
+           -e "s|__HOME__|$HOME|g" \
+           ~/Library/LaunchAgents/com.screenmind.new-recording-notify.plist
+    3. Load the agent:
+         launchctl load ~/Library/LaunchAgents/com.screenmind.new-recording-notify.plist
+
+  UNINSTALL
+    launchctl unload ~/Library/LaunchAgents/com.screenmind.new-recording-notify.plist \
+      && rm ~/Library/LaunchAgents/com.screenmind.new-recording-notify.plist
+
+  TEST IT FIRES
+    launchctl start com.screenmind.new-recording-notify
+    (Check ~/.screenmind/notify.log for stdout/stderr if no notification appears.
+    macOS may require granting Notification permission to your terminal /
+    Script Editor the first time osascript runs.)
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.screenmind.new-recording-notify</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__SCREENMIND_REPO__/new-recording-notify.sh</string>
+    </array>
+
+    <key>WatchPaths</key>
+    <array>
+        <string>__HOME__/Desktop</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>__HOME__/.screenmind/notify.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>__HOME__/.screenmind/notify.log</string>
+</dict>
+</plist>

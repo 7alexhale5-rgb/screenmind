@@ -3,3 +3,10 @@ __pycache__/
 *.pyc
 .DS_Store
 *.egg-info/
+*.log
+.envrc
+.runs/
+.idea/
+.vscode/
+dist/
+build/
