@@ -34,8 +34,15 @@ def load_config() -> dict:
     SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 
     if CONFIG_PATH.exists():
-        with open(CONFIG_PATH) as f:
-            user_config = json.load(f)
+        # Defensive: a corrupt or hand-edited config shouldn't crash the server.
+        # Fall back to defaults silently rather than refuse to start.
+        try:
+            with open(CONFIG_PATH) as f:
+                user_config = json.load(f)
+        except (json.JSONDecodeError, ValueError, OSError):
+            user_config = {}
+        if not isinstance(user_config, dict):
+            user_config = {}
         return {**DEFAULT_CONFIG, **user_config}
 
     with open(CONFIG_PATH, "w") as f:

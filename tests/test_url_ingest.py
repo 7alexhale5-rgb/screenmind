@@ -32,3 +32,33 @@ def test_malformed_url_does_not_raise():
     # Defensive: bad input must return False, not raise
     assert is_url("not a url at all !!!") is False
     assert is_url("http://") is False
+
+
+def test_download_url_raises_when_yt_dlp_missing(monkeypatch):
+    """If yt-dlp isn't installed, callers get a clear install hint — not a binary-not-found stack trace."""
+    from screenmind import url_ingest
+
+    monkeypatch.setattr(url_ingest, "find_binary", lambda _name: None)
+
+    with pytest.raises(RuntimeError, match="yt-dlp not found"):
+        url_ingest.download_url("https://example.com/video")
+
+
+def test_download_url_handles_empty_stdout(monkeypatch, tmp_path):
+    """yt-dlp exit=0 with empty stdout is a real edge case (some live streams).
+
+    Don't let it crash with IndexError on `splitlines()[-1]` — surface a clear message.
+    """
+    from screenmind import url_ingest
+
+    monkeypatch.setattr(url_ingest, "find_binary", lambda _name: "/usr/bin/yt-dlp")
+
+    class FakeResult:
+        returncode = 0
+        stdout = "   \n   "  # whitespace only — strip() leaves nothing
+        stderr = ""
+
+    monkeypatch.setattr(url_ingest.subprocess, "run", lambda *a, **kw: FakeResult())
+
+    with pytest.raises(RuntimeError, match="no after_move:filepath"):
+        url_ingest.download_url("https://example.com/video")

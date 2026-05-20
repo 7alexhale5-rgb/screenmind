@@ -237,12 +237,17 @@ def _select_best_frames(
 
 
 def _extract_audio(video_path: str, audio_path: str) -> bool:
-    """Extract audio track to MP3. Returns False when no audio stream or ffmpeg missing."""
+    """Extract audio track to MP3. Returns False when no audio stream, ffmpeg missing, or timeout."""
     ffmpeg = find_binary("ffmpeg")
     if not ffmpeg:
         return False
     cmd = [ffmpeg, "-i", video_path, "-vn", "-acodec", "mp3", "-y", audio_path]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        # Long videos can blow past the 120s budget; degrade to "no transcript"
+        # rather than crashing the whole watch run.
+        return False
     return result.returncode == 0 and os.path.exists(audio_path)
 
 
@@ -647,6 +652,9 @@ def screenmind_search(
     """
     if not query or not query.strip():
         return "Provide a non-empty query string."
+
+    if limit is None or limit <= 0:
+        return "Provide a positive limit (e.g. limit=10)."
 
     if not SESSIONS_DIR.exists():
         return "No sessions yet. Run screenmind_watch first."

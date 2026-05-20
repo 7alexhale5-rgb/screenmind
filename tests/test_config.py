@@ -39,3 +39,23 @@ def test_missing_keys_backfill_from_defaults(tmp_screenmind_dir):
     assert "whisper_model" in result
     assert result["whisper_model"] == cfg.DEFAULT_CONFIG["whisper_model"]
     assert "audio_transcription_enabled" in result
+
+
+def test_corrupt_json_falls_back_to_defaults(tmp_screenmind_dir):
+    """A hand-edited config with broken JSON shouldn't crash the server."""
+    import screenmind.config as cfg
+    cfg.CONFIG_PATH.write_text("{this is not valid json")
+
+    result = cfg.load_config()
+
+    assert result == cfg.DEFAULT_CONFIG
+
+
+def test_non_object_json_falls_back_to_defaults(tmp_screenmind_dir):
+    """JSON that parses but isn't a dict (e.g. a list) also falls back cleanly."""
+    import screenmind.config as cfg
+    cfg.CONFIG_PATH.write_text(json.dumps(["not", "a", "dict"]))
+
+    result = cfg.load_config()
+
+    assert result == cfg.DEFAULT_CONFIG

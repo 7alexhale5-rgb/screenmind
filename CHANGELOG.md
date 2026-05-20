@@ -39,6 +39,16 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 ### Fixed
 
 - `parse_frame_rate` now handles zero denominators (`30/0`) and malformed strings by falling back to 30.0 instead of raising `ZeroDivisionError` or `ValueError`.
+- `load_config` falls back to defaults when `~/.screenmind/config.json` is corrupt JSON or parses to a non-object — the server no longer refuses to start on a hand-edited file.
+- `extract_frames_at_fps` rejects `fps <= 0` at the function boundary instead of emitting a malformed ffmpeg filter or hitting `ZeroDivisionError` in the timestamp loop.
+- `download_url` raises a clear `RuntimeError` when yt-dlp exits 0 but emits no `after_move:filepath` line (rare, hit on some live streams) instead of `IndexError` on `splitlines()[-1]`.
+- `_extract_audio` catches `subprocess.TimeoutExpired` (120s budget) and degrades to "no transcript" so very long videos don't crash the whole `screenmind_watch` run.
+- `screenmind_search` validates `limit > 0` and returns a clear message on `limit=0`/negative.
+
+### Security
+
+- `.github/workflows/ci.yml` pins `actions/checkout` and `actions/setup-python` to commit SHAs (was floating `@v4` / `@v5` tags) and sets `persist-credentials: false` on checkout.
+- Bumped test suite to 36 tests (added coverage for the corrupt-JSON, non-object-JSON, non-positive-fps, missing-yt-dlp, and empty-stdout paths above).
 
 ## [0.2.0] - 2026-05-19
 

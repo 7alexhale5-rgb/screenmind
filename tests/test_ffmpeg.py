@@ -44,3 +44,22 @@ def test_extraction_fps_long_clip():
     # > 60s → 0.5 fps
     assert get_extraction_fps(60.1) == 0.5
     assert get_extraction_fps(600) == 0.5
+
+
+@pytest.mark.parametrize("bad_fps", [0, -1, -0.5])
+def test_extract_frames_at_fps_rejects_non_positive_fps(bad_fps, tmp_path):
+    """fps <= 0 would make the downstream `timestamp = offset + i / fps` blow up.
+
+    Better to fail loudly at the function boundary than emit a confusing
+    ZeroDivisionError or hand ffmpeg a malformed filter chain.
+    """
+    from screenmind.ffmpeg import extract_frames_at_fps
+
+    with pytest.raises(ValueError, match="fps must be positive"):
+        extract_frames_at_fps(
+            video_path="/nonexistent.mov",
+            output_dir=str(tmp_path),
+            fps=bad_fps,
+            quality=80,
+            max_width=1280,
+        )

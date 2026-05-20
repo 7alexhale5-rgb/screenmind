@@ -192,7 +192,7 @@ The number in brackets is the index. Set it as a string in the config:
 
 Notes:
 
-- `config.json` is read on every `_load_config()` call and merged with `DEFAULT_CONFIG`. If you delete a key, the default is used until you re-add it. New keys you don't recognize are kept as-is.
+- `config.json` is read on every `load_config()` call and merged with `DEFAULT_CONFIG`. If you delete a key, the default is used until you re-add it. New keys you don't recognize are kept as-is. A corrupt or non-object JSON file is treated as empty (defaults apply) — the server logs nothing but won't refuse to start.
 - Session directories are pruned by `max_sessions_kept` only during a `screenmind_watch` run. The `raw/` subdirectory used during extraction is removed at the end of each run.
 - Downloads do not auto-clean. Delete the `downloads/` folder manually when you want to reclaim space.
 - The whole tree is created with default permissions (`0o755` from `mkdir`). If `~/.screenmind/` fails to create with a permission error, see [`TROUBLESHOOTING.md`](./TROUBLESHOOTING.md).

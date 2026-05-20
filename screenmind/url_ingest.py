@@ -42,7 +42,13 @@ def download_url(url: str) -> str:
     if result.returncode != 0:
         raise RuntimeError(f"yt-dlp failed: {result.stderr.strip()}")
 
-    downloaded_path = result.stdout.strip().splitlines()[-1]
+    # `--print after_move:filepath` should emit a path on stdout. Guard against
+    # the case where yt-dlp exits 0 but emits nothing (rare, but reported on
+    # some live streams and on certain extractor failures).
+    lines = result.stdout.strip().splitlines()
+    if not lines:
+        raise RuntimeError("yt-dlp returned no after_move:filepath line")
+    downloaded_path = lines[-1]
     if not os.path.exists(downloaded_path):
         raise RuntimeError(
             f"Download reported success but file not found: {downloaded_path}"

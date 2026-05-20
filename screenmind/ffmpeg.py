@@ -136,6 +136,9 @@ def extract_frames_at_fps(
     end_time: Optional[float] = None,
 ) -> list[dict]:
     """Extract frames at a given FPS rate. Returns list of {path, timestamp}."""
+    if fps <= 0:
+        # ffmpeg's fps filter would emit garbage; downstream `i / fps` would also blow up.
+        raise ValueError(f"fps must be positive, got {fps}")
     ffmpeg = find_binary("ffmpeg")
     if not ffmpeg:
         raise RuntimeError("ffmpeg not found")

@@ -1,12 +1,39 @@
 # ScreenMind
 
+**Give Claude Code eyes on any screen recording, YouTube video, or live screen change — locally, in seconds.**
+
 [![CI](https://github.com/7alexhale5-rgb/screenmind/actions/workflows/ci.yml/badge.svg)](https://github.com/7alexhale5-rgb/screenmind/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 
-Local MCP server that turns screen recordings and online videos into structured behavioral context for Claude.
+<img src="docs/assets/demo.gif" alt="ScreenMind in action — Claude watching a YouTube tutorial and searching past sessions" width="100%">
+<!-- Record demo per docs/assets/DEMO-RECORDING-SPEC.md → 30s walkthrough of watching a YouTube tutorial + searching past sessions -->
 
-ScreenMind processes a recording (local file or URL from YouTube, Instagram, TikTok, Twitter/X, and 1000+ other sites via yt-dlp) into keyframes, OCR text, audio transcript, and a timeline. It returns a text report with frame file paths — Claude reads the frames itself via the Read tool, so nothing is base64-encoded into the context window.
+## The problem
+
+Claude can't watch a video. You paste timestamps, transcribe by hand, or screenshot every frame. Tutorials, bug repros, and Loom shares stay locked behind your eyeballs while the agent waits.
+
+ScreenMind is a local MCP server that turns any recording — local file or YouTube/Instagram/TikTok URL — into a timestamped timeline of keyframes, OCR text, and Whisper transcript. Claude reads what it needs via the Read tool; no base64, no token bloat.
+
+## What you can ask Claude
+
+- "Watch this YouTube tutorial and pull out the key steps: <URL>"
+- "Watch my latest screen recording and tell me where the bug starts"
+- "Tell me when my build finishes — wait up to 5 minutes"
+- "Find the recording where I saw that TypeError last week"
+
+## Why this and not X
+
+ScreenMind owns one lane: **recording comprehension** — finished videos and screen captures turned into a structured timeline. Tools like screenpipe, claude-screen-mcp, and Anthropic's computer-use live on the **live-watch** lane (continuous screen state for an active session). Different jobs, complementary tools. See the [How ScreenMind compares](#how-screenmind-compares) table below for the full matrix.
+
+## Install
+
+```bash
+./install.sh
+claude mcp add screenmind -- /path/to/screenmind/.venv/bin/python /path/to/screenmind/server.py
+```
+
+First call to `screenmind_status` confirms the install.
 
 ## Features
 
