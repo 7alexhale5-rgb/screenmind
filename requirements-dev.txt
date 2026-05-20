@@ -1,0 +1,4 @@
+# Test + lint deps for ScreenMind development
+# Install: pip install -r requirements-dev.txt
+pytest>=8.0
+pytest-mock>=3.12

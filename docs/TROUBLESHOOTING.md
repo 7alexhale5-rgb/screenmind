@@ -311,3 +311,59 @@ screenmind_status
 ```
 
 If you get a response, the server is live. If you get an error like "tool not found," registration didn't stick — re-run `claude mcp add` and restart.
+
+---
+
+## `wait_for_change` returns "requires scikit-image"
+
+**Problem:** `screenmind_wait_for_change` immediately returns `wait_for_change requires scikit-image`.
+
+**Cause:** The long-poll tool needs SSIM to compare consecutive frames against the baseline. `scikit-image` is an optional dependency — `install.sh` tries to install it but the install may have failed silently if the venv was missing build tools at the time.
+
+**Fix:**
+
+```bash
+/path/to/screenmind/.venv/bin/pip install scikit-image
+```
+
+Then re-register the MCP server or restart Claude Code so the Python process picks up the new package.
+
+---
+
+## Whisper transcript section is missing or says "unavailable"
+
+**Problem:** `screenmind_watch` runs successfully but the report ends without an `## Audio Transcript` section, or shows `Audio transcription: unavailable`.
+
+**Cause:** One of three things:
+
+1. `faster-whisper` is not installed in the venv.
+2. The video has no audio stream (silent screen recordings without microphone input).
+3. ffmpeg audio extraction failed (broken file, unsupported codec).
+
+**Fix:** Run `screenmind_status` — it has an `Audio transcription:` line that distinguishes "not installed" from "available." If "not installed":
+
+```bash
+/path/to/screenmind/.venv/bin/pip install faster-whisper
+```
+
+If "available" but the report still says "unavailable," the video probably has no audio track. Run `ffprobe -i your-video.mov` and look for an audio stream entry. If missing, that's expected — set `audio_transcription_enabled: false` in `~/.screenmind/config.json` to suppress the unavailability line.
+
+---
+
+## `screenmind_search` returns "No matches" but you know you saw the text
+
+**Problem:** A search query that should match an earlier session returns no hits.
+
+**Cause:** Three common reasons:
+
+1. The session was created **before v0.3.0** introduced per-session `report.md` persistence. Older sessions have frames but no report file, so they're invisible to search. Re-run `screenmind_watch` on the original recording to backfill.
+2. Your `since` filter is too narrow — relative durations like `24h` are relative to *now*, not to your last work session.
+3. The OCR pass was disabled or failed, so the visible text never made it into the report. Re-run `screenmind_watch` after fixing OCR (see the OCR troubleshooting section).
+
+**Fix:** Drop the `since` filter and search broadly first:
+
+```text
+screenmind_search(query="<term>")
+```
+
+If that returns nothing, the text was never indexed. Re-run `screenmind_watch` on the original recording with OCR enabled.

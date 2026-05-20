@@ -1,8 +1,39 @@
 # ScreenMind
 
-Local MCP server that turns screen recordings and online videos into structured behavioral context for Claude.
+**Give Claude Code eyes on any screen recording, YouTube video, or live screen change — locally, in seconds.**
 
-ScreenMind processes a recording (local file or URL from YouTube, Instagram, TikTok, Twitter/X, and 1000+ other sites via yt-dlp) into keyframes, OCR text, and a timeline. It returns a text report with frame file paths — Claude reads the frames itself via the Read tool, so nothing is base64-encoded into the context window.
+[![CI](https://github.com/7alexhale5-rgb/screenmind/actions/workflows/ci.yml/badge.svg)](https://github.com/7alexhale5-rgb/screenmind/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
+
+<img src="docs/assets/demo.gif" alt="ScreenMind in action — Claude watching a YouTube tutorial and searching past sessions" width="100%">
+<!-- Record demo per docs/assets/DEMO-RECORDING-SPEC.md → 30s walkthrough of watching a YouTube tutorial + searching past sessions -->
+
+## The problem
+
+Claude can't watch a video. You paste timestamps, transcribe by hand, or screenshot every frame. Tutorials, bug repros, and Loom shares stay locked behind your eyeballs while the agent waits.
+
+ScreenMind is a local MCP server that turns any recording — local file or YouTube/Instagram/TikTok URL — into a timestamped timeline of keyframes, OCR text, and Whisper transcript. Claude reads what it needs via the Read tool; no base64, no token bloat.
+
+## What you can ask Claude
+
+- "Watch this YouTube tutorial and pull out the key steps: <URL>"
+- "Watch my latest screen recording and tell me where the bug starts"
+- "Tell me when my build finishes — wait up to 5 minutes"
+- "Find the recording where I saw that TypeError last week"
+
+## Why this and not X
+
+ScreenMind owns one lane: **recording comprehension** — finished videos and screen captures turned into a structured timeline. Tools like screenpipe, claude-screen-mcp, and Anthropic's computer-use live on the **live-watch** lane (continuous screen state for an active session). Different jobs, complementary tools. See the [How ScreenMind compares](#how-screenmind-compares) table below for the full matrix.
+
+## Install
+
+```bash
+./install.sh
+claude mcp add screenmind -- /path/to/screenmind/.venv/bin/python /path/to/screenmind/server.py
+```
+
+First call to `screenmind_status` confirms the install.
 
 ## Features
 
@@ -11,10 +42,13 @@ ScreenMind processes a recording (local file or URL from YouTube, Instagram, Tik
 - **Adaptive FPS extraction** — 2fps for short clips, 0.5fps for long ones, based on duration
 - **SSIM deduplication** — drops near-identical frames while preserving first, last, and scene-change frames
 - **OCR** — tesseract extracts visible text from each retained frame
+- **Audio transcription** — `faster-whisper` adds a timestamped transcript to each `screenmind_watch` report (v0.3.0)
+- **Live-change long-poll** — `screenmind_wait_for_change` blocks until SSIM drops below a threshold or a timeout elapses (v0.3.0)
+- **Cross-session search** — `screenmind_search` finds prior recordings by OCR or transcript text (v0.3.0)
 - **Smart frame selection** — when over budget, prioritizes first/last, scene changes, OCR text changes, then even distribution
 - **macOS screen recording** — start/stop via ffmpeg avfoundation, clean shutdown via SIGINT
 - **Session persistence** — frames stored under `~/.screenmind/sessions/<session_id>/` so they remain readable across turns
-- **Graceful degradation** — missing yt-dlp, scikit-image, pytesseract, or tesseract just disables that feature; the server keeps working
+- **Graceful degradation** — missing yt-dlp, scikit-image, pytesseract, tesseract, or faster-whisper just disables that feature; the server keeps working
 - **Time range scoping** — re-examine a specific `start_time`/`end_time` window without reprocessing the whole video
 
 ## Quick Start
@@ -35,7 +69,7 @@ claude mcp list
 
 ## Usage
 
-ScreenMind exposes five MCP tools. Most of the time you ask Claude in plain English; the raw tool calls below are for power users.
+ScreenMind exposes seven MCP tools. Most of the time you ask Claude in plain English; the raw tool calls below are for power users.
 
 ### Watching a local recording
 
@@ -85,6 +119,30 @@ screenmind_record_stop
 
 `screenmind_record_start` launches ffmpeg with avfoundation. `screenmind_record_stop` sends `SIGINT` so ffmpeg writes a clean file trailer.
 
+### Waiting for screen changes
+
+`screenmind_wait_for_change` long-polls the screen and returns the first frame whose SSIM similarity to a baseline drops below the threshold. Use this for "tell me when the build finishes" or "watch for the next dialog."
+
+```text
+screenmind_wait_for_change                                          # 0.95 / 300s defaults
+screenmind_wait_for_change threshold=0.90 max_wait_seconds=60
+screenmind_wait_for_change poll_interval=2.0
+```
+
+Hard caps: `max_wait_seconds` at 600, `poll_interval` minimum 0.5s.
+
+### Cross-session search
+
+`screenmind_search` finds prior sessions by OCR text or audio transcript. Reports are persisted per session as `report.md`.
+
+```text
+screenmind_search query="error dialog"
+screenmind_search query="login" limit=5 since="24h"
+screenmind_search query="commit" since="2026-05-01"
+```
+
+`since` accepts ISO dates (`2026-05-01`) or relative durations (`30m`, `24h`, `7d`).
+
 ### Listing and status
 
 ```text
@@ -95,13 +153,15 @@ screenmind_status                # recording state + dependency probe
 
 ## Tool Reference
 
-| Tool                      | Purpose                                                   | Parameters                                                                                                                                                                                                                                                                    | Returns                                     |
-| ------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
-| `screenmind_watch`        | Process recording into keyframes + OCR + timeline         | `file_path` (str, optional — local path or URL; defaults to latest in `capture_dir`), `focus` (str, optional — context hint), `start_time` (float, optional — seconds), `end_time` (float, optional — seconds), `max_frames` (int, optional — overrides `default_max_frames`) | Markdown report with frame file paths       |
-| `screenmind_record_start` | Start macOS screen recording via ffmpeg avfoundation      | `duration` (int, optional — defaults to `max_recording_duration`), `output_name` (str, optional — defaults to `screenmind_<timestamp>`)                                                                                                                                       | Status string with output path              |
-| `screenmind_record_stop`  | Stop active recording (SIGINT for clean trailer)          | none                                                                                                                                                                                                                                                                          | Status string with saved file path and size |
-| `screenmind_list`         | List recordings in `capture_dir` matching `file_patterns` | `limit` (int, default `10`)                                                                                                                                                                                                                                                   | Markdown list of files with size and mtime  |
-| `screenmind_status`       | Recording state, session count, dependency probe          | none                                                                                                                                                                                                                                                                          | Markdown status report                      |
+| Tool                         | Purpose                                                   | Parameters                                                                                                                                                                                                                                                                    | Returns                                     |
+| ---------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| `screenmind_watch`           | Process recording → keyframes + OCR + audio + timeline    | `file_path` (str, optional — local path or URL; defaults to latest in `capture_dir`), `focus` (str, optional — context hint), `start_time` (float, optional — seconds), `end_time` (float, optional — seconds), `max_frames` (int, optional — overrides `default_max_frames`) | Markdown report with frame file paths       |
+| `screenmind_wait_for_change` | Long-poll until screen changes or timeout elapses         | `threshold` (float, default `0.95` — SSIM floor), `max_wait_seconds` (int, default `300`, hard-capped at 600), `poll_interval` (float, default `1.0`, min `0.5`)                                                                                                              | Markdown change report or timeout report    |
+| `screenmind_search`          | Find prior sessions by OCR or transcript match            | `query` (str, required), `limit` (int, default `10`), `since` (str, optional — ISO date or `30m`/`24h`/`7d`)                                                                                                                                                                  | Ranked Markdown hit list with frame paths   |
+| `screenmind_record_start`    | Start macOS screen recording via ffmpeg avfoundation      | `duration` (int, optional — defaults to `max_recording_duration`), `output_name` (str, optional — defaults to `screenmind_<timestamp>`)                                                                                                                                       | Status string with output path              |
+| `screenmind_record_stop`     | Stop active recording (SIGINT for clean trailer)          | none                                                                                                                                                                                                                                                                          | Status string with saved file path and size |
+| `screenmind_list`            | List recordings in `capture_dir` matching `file_patterns` | `limit` (int, default `10`)                                                                                                                                                                                                                                                   | Markdown list of files with size and mtime  |
+| `screenmind_status`          | Recording state, session count, dependency probe          | none                                                                                                                                                                                                                                                                          | Markdown status report                      |
 
 ## How It Works
 
@@ -115,25 +175,41 @@ screenmind_status                # recording state + dependency probe
 6. **Best-frame selection within budget** — when frames exceed `max_frames`, priority order is: first/last → scene changes → frames with OCR text changes (>30% character delta) → even distribution to fill remaining slots.
 7. **OCR + cleanup** — tesseract runs on retained frames. Discarded frame files are deleted. Sessions beyond `max_sessions_kept` are pruned.
 
-The returned text report lists each frame with its timestamp, source tag (`scene_change` or `interval`), file path, and OCR text. Claude opens specific frames with the Read tool when it needs to see pixels.
+The returned text report lists each frame with its timestamp, source tag (`scene_change` or `interval`), file path, and OCR text. When `faster-whisper` is installed and the video has an audio track, an `## Audio Transcript` section is appended with timestamped segments. Claude opens specific frames with the Read tool when it needs to see pixels.
+
+## How ScreenMind compares
+
+ScreenMind sits on the **recording-comprehension** axis: it processes finished recordings (local files or URLs) into a timeline. Most other "give Claude eyes" tools live on the **live-watch** axis — continuous screen state for an active session. The two lanes are complementary, not substitutes.
+
+| Project                                                                                                   | Lane                          | License     | URL ingest | Cross-platform              | Audio   |
+| --------------------------------------------------------------------------------------------------------- | ----------------------------- | ----------- | ---------- | --------------------------- | ------- |
+| **ScreenMind**                                                                                            | Recording comprehension       | MIT         | yt-dlp     | macOS (record), all (watch) | Whisper |
+| [screenpipe](https://github.com/mediar-ai/screenpipe)                                                     | Continuous capture + AX-tree  | MIT         | no         | macOS, Linux                | Yes     |
+| [claude-screen-mcp](https://github.com/lfzds4399-cpu/claude-screen-mcp)                                   | Live read-only screen         | MIT         | no         | Windows, macOS, Linux       | no      |
+| [ghost-os](https://github.com/ghostwright/ghost-os)                                                       | AX-tree desktop automation    | MIT         | no         | macOS 14+ only              | no      |
+| [Anthropic computer-use](https://platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool) | Official screenshot + control | Proprietary | no         | macOS (primary)             | no      |
+
+See [docs/POSITIONING.md](docs/POSITIONING.md) for the naming landscape and how to pick between these tools.
 
 ## Configuration
 
 `~/.screenmind/config.json` is created with defaults on first run. User values are merged on top of defaults — missing keys fall back to defaults.
 
-| Key                         | Default                       | Description                                                                              |
-| --------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------- |
-| `capture_dir`               | `~/Desktop`                   | Where recordings are saved and discovered                                                |
-| `file_patterns`             | `["*.mov", "*.mp4", "*.mkv"]` | Glob patterns used by `screenmind_list` and "latest recording" lookup                    |
-| `max_recording_duration`    | `120`                         | Max seconds for `screenmind_record_start`                                                |
-| `default_max_frames`        | `15`                          | Frame budget per `screenmind_watch` call                                                 |
-| `frame_quality`             | `80`                          | JPEG quality, 1-100 (mapped to ffmpeg `-q:v`)                                            |
-| `frame_max_width`           | `1280`                        | Max output frame width; aspect ratio preserved                                           |
-| `dedup_threshold`           | `0.95`                        | SSIM score above which frames are treated as duplicates (higher = more aggressive dedup) |
-| `scene_change_threshold`    | `0.3`                         | ffmpeg scene score cutoff (lower = more scenes detected)                                 |
-| `ocr_enabled`               | `true`                        | Toggle tesseract OCR pass                                                                |
-| `avfoundation_screen_index` | `"1"`                         | macOS screen device index for ffmpeg avfoundation                                        |
-| `max_sessions_kept`         | `20`                          | Old session directories pruned beyond this count                                         |
+| Key                           | Default                       | Description                                                                                          |
+| ----------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `capture_dir`                 | `~/Desktop`                   | Where recordings are saved and discovered                                                            |
+| `file_patterns`               | `["*.mov", "*.mp4", "*.mkv"]` | Glob patterns used by `screenmind_list` and "latest recording" lookup                                |
+| `max_recording_duration`      | `120`                         | Max seconds for `screenmind_record_start`                                                            |
+| `default_max_frames`          | `15`                          | Frame budget per `screenmind_watch` call                                                             |
+| `frame_quality`               | `80`                          | JPEG quality, 1-100 (mapped to ffmpeg `-q:v`)                                                        |
+| `frame_max_width`             | `1280`                        | Max output frame width; aspect ratio preserved                                                       |
+| `dedup_threshold`             | `0.95`                        | SSIM score above which frames are treated as duplicates (higher = more aggressive dedup)             |
+| `scene_change_threshold`      | `0.3`                         | ffmpeg scene score cutoff (lower = more scenes detected)                                             |
+| `ocr_enabled`                 | `true`                        | Toggle tesseract OCR pass                                                                            |
+| `audio_transcription_enabled` | `true`                        | Toggle the Whisper transcript pass in `screenmind_watch`                                             |
+| `whisper_model`               | `"tiny.en"`                   | faster-whisper model name — `tiny.en`, `base.en`, `small.en`, etc. (larger = slower + more accurate) |
+| `avfoundation_screen_index`   | `"1"`                         | macOS screen device index for ffmpeg avfoundation                                                    |
+| `max_sessions_kept`           | `20`                          | Old session directories pruned beyond this count                                                     |
 
 ## Sessions and Storage
 
@@ -165,12 +241,13 @@ Session IDs are `<unix_timestamp>_<source_filename_stem>` so they sort chronolog
 
 ### Optional (graceful degradation)
 
-| Dependency               | What it unlocks                                         | Without it                                                                     |
-| ------------------------ | ------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `yt-dlp` binary          | URL inputs (YouTube, Instagram, TikTok, X, 1000+ sites) | URL inputs return `Download failed: yt-dlp not found` — local files still work |
-| `scikit-image`           | SSIM frame deduplication                                | all interval frames retained (slightly noisier reports)                        |
-| `pytesseract` + `Pillow` | OCR text extraction                                     | reports omit `Visible text` blocks                                             |
-| `tesseract` binary       | OCR engine that pytesseract drives                      | OCR silently disabled                                                          |
+| Dependency               | What it unlocks                                         | Without it                                                                              |
+| ------------------------ | ------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `yt-dlp` binary          | URL inputs (YouTube, Instagram, TikTok, X, 1000+ sites) | URL inputs return `Download failed: yt-dlp not found` — local files still work          |
+| `scikit-image`           | SSIM frame deduplication + `screenmind_wait_for_change` | all interval frames retained; `wait_for_change` returns an "install scikit-image" error |
+| `pytesseract` + `Pillow` | OCR text extraction                                     | reports omit `Visible text` blocks                                                      |
+| `tesseract` binary       | OCR engine that pytesseract drives                      | OCR silently disabled                                                                   |
+| `faster-whisper`         | Audio transcription in `screenmind_watch`               | reports omit the `Audio Transcript` section                                             |
 
 Binary lookup checks `/opt/homebrew/bin/` first (Apple Silicon Homebrew) before falling back to `PATH`. Results are cached per process.
 
@@ -237,8 +314,12 @@ When a new file appears in `~/Desktop`, the launchd job runs the script and you 
 ## Development
 
 ```bash
-# Compile-check the server
-python3 -m py_compile server.py
+# Compile-check the server + package modules
+python3 -m py_compile server.py screenmind/*.py
+
+# Run the test suite
+pip install -r requirements-dev.txt
+pytest -q
 
 # Run directly (stdio MCP transport — useful for client debugging)
 python3 server.py
@@ -246,6 +327,8 @@ python3 server.py
 # Reinstall the venv from scratch
 ./install.sh
 ```
+
+CI runs the test suite on every push and PR against `main` across `ubuntu-latest` and `macos-latest` on Python 3.11 and 3.12 — see `.github/workflows/ci.yml`.
 
 Key design constraints enforced in `server.py`:
 

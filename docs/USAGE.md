@@ -238,4 +238,81 @@ Returns the 20 most recent files matching `file_patterns` in `capture_dir`, newe
 screenmind_status()
 ```
 
-Shows whether a recording is active, how many sessions are stored, current config values, and which optional dependencies are available (`ssim`, `ocr`, `ffmpeg`, `ffprobe`, `tesseract`). Run this first if anything feels off.
+Shows whether a recording is active, how many sessions are stored, current config values, and which optional dependencies are available (`ssim`, `ocr`, `whisper`, `ffmpeg`, `ffprobe`, `tesseract`, `yt-dlp`). Run this first if anything feels off.
+
+---
+
+## "Tell me when the build finishes"
+
+You kick off a slow build, switch windows, and want Claude to notice when the terminal output changes meaningfully — e.g., the build prompt reappears or an error dialog pops up.
+
+Ask Claude:
+
+```text
+Watch my screen and let me know when something changes. Give it 5 minutes.
+```
+
+What runs:
+
+```text
+screenmind_wait_for_change(threshold=0.95, max_wait_seconds=300)
+```
+
+ScreenMind snaps a baseline frame, then samples every second comparing SSIM similarity. The first sample whose similarity drops below `threshold` (default 0.95) ends the call and returns the changed frame's path + the elapsed time + the SSIM score. If nothing changes within `max_wait_seconds` (hard-capped at 600), you get a timed-out report.
+
+Tuning:
+
+- Lower `threshold` (e.g., `0.85`) → less sensitive, only reacts to bigger changes (window switches, dialog popups).
+- Higher `threshold` (e.g., `0.98`) → very sensitive, fires on subtle UI updates (cursor blink, indicator spinners).
+- Raise `poll_interval` to 2–5 seconds when you don't need sub-second latency — uses less CPU.
+
+Requires `scikit-image`. Skips with a clear install instruction when missing.
+
+---
+
+## "Did I work on that bug last week?"
+
+You half-remember solving an error a week ago and want to find the recording.
+
+Ask Claude:
+
+```text
+Search my past sessions for the "TypeError: cannot read property" message from the last week.
+```
+
+What runs:
+
+```text
+screenmind_search(query="TypeError: cannot read property", since="7d")
+```
+
+ScreenMind walks every persisted `report.md` under `~/.screenmind/sessions/` whose mtime falls inside the window, substring-matches against OCR text and audio transcript, and returns a ranked hit list with `session_id`, timestamp, matched snippet, and a `first_frame` pointer.
+
+`since` accepts:
+
+- ISO date — `"2026-05-01"`
+- Relative — `"30m"`, `"24h"`, `"7d"`
+
+Pass nothing to search all sessions.
+
+---
+
+## "Watch this YouTube tutorial and write notes"
+
+You want notes from a Loom or YouTube walkthrough without watching it yourself.
+
+Ask Claude:
+
+```text
+Watch https://www.youtube.com/watch?v=ABC123 and pull out the key steps with timestamps.
+```
+
+What runs:
+
+```text
+screenmind_watch(file_path="https://www.youtube.com/watch?v=ABC123")
+```
+
+With `faster-whisper` installed, the report includes an `## Audio Transcript` section with timestamped segments. Claude combines the visual timeline (scene changes, OCR text from on-screen captions) with the spoken transcript to write structured notes — no manual watching required.
+
+First Whisper call downloads the configured model (default `tiny.en`, ≈75 MB). Subsequent calls reuse the cached model in-process. Bigger models (`base.en`, `small.en`) trade speed for accuracy — configure via `whisper_model` in `~/.screenmind/config.json`.

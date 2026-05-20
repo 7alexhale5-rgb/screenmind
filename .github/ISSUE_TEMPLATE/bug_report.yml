@@ -1,0 +1,56 @@
+name: Bug report
+description: Something doesn't work as expected
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the bug report. The more specific, the faster we fix it.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the actual behavior you observed.
+    validations:
+      required: true
+  - type: textarea
+    id: what-expected
+    attributes:
+      label: What did you expect?
+      description: Describe what you thought should happen instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: List the exact steps so we can reproduce the issue.
+      placeholder: |
+        1. Run `screenmind_watch` with ...
+        2. Observe ...
+        3. See error ...
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: OS + Python version
+      placeholder: "macOS 14.5, Python 3.12.3"
+    validations:
+      required: true
+  - type: textarea
+    id: status-output
+    attributes:
+      label: Output of `screenmind_status`
+      description: Run the `screenmind_status` MCP tool and paste the full output.
+      placeholder: Paste the full output here.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / stack trace
+      description: Any relevant log output or stack traces. Optional.
+    validations:
+      required: false
