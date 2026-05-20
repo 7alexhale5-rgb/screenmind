@@ -6,8 +6,18 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 
-<img src="docs/assets/demo.gif" alt="ScreenMind in action — Claude watching a YouTube tutorial and searching past sessions" width="100%">
-<!-- Record demo per docs/assets/DEMO-RECORDING-SPEC.md → 30s walkthrough of watching a YouTube tutorial + searching past sessions -->
+<img src="docs/assets/demo.gif" alt="ScreenMind in action — Claude watching a screen recording end-to-end" width="100%">
+
+<details>
+<summary><strong>What Claude actually gets back</strong> — click to see a sample report</summary>
+
+<br>
+
+<img src="docs/assets/report-sample.png" alt="ScreenMind session report — timeline of keyframes with OCR text and Whisper transcript" width="100%">
+
+A complete behavioral trace of a 12-second checkout flow: cart at $40 → checkout → totals collapse to $0 → error toast → empty cart. Five keyframes, OCR text per frame, scene-change tags, OCR-delta hints, audio transcript with timestamps. Every frame is a file path Claude opens on demand with the Read tool.
+
+</details>
 
 ## The problem
 
