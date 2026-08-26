@@ -29,10 +29,20 @@ DEFAULT_CONFIG = {
     "capture_dir": "~/Desktop",
     "file_patterns": ["*.mov", "*.mp4", "*.mkv"],
     "max_recording_duration": 120,
-    "default_max_frames": 15,
+    # 2 fps is the house standard for anything Alex drops (see the
+    # "process at 2 fps, every frame" rule). It used to be opt-in via
+    # max_frames, and every one of the first 8 real calls missed it --
+    # 4 never passed max_frames at all and silently got 15 frames for a
+    # multi-minute recording. A safe path nobody takes is not a safe path,
+    # so the standard is now what you get by default.
+    "target_fps": 2.0,
+    "default_max_frames": None,   # None -> derive from duration x target_fps
+    "frame_budget_ceiling": 900,  # 7.5 min at 2 fps; past this we say so loudly
     "frame_quality": 80,
     "frame_max_width": 1280,
-    "dedup_threshold": 0.95,
+    # Only drop virtually identical frames. The old 0.95 was a keyframe-dedup
+    # summariser that discarded real UI changes.
+    "dedup_threshold": 0.995,
     "scene_change_threshold": 0.3,
     "ocr_enabled": True,
     "avfoundation_screen_index": "1",
@@ -68,6 +78,32 @@ def _find_binary(name: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 
+# Bumping this retires stale values written by an older version. Without it a
+# config.json created on first run pins that day's defaults forever, so every
+# later improvement is silently inert -- which is how a 2 fps standard kept
+# producing 15-frame samples long after the default changed. Only values that
+# still match the retired default are cleared; anything you actually customised
+# survives.
+CONFIG_VERSION = 2
+RETIRED_DEFAULTS = {
+    "default_max_frames": [15],
+    "dedup_threshold": [0.95],
+}
+
+
+def _migrate_config(user_config: dict) -> tuple[dict, bool]:
+    """Drop keys still holding a superseded default. Returns (config, changed)."""
+    if user_config.get("config_version", 1) >= CONFIG_VERSION:
+        return user_config, False
+    cleaned, changed = dict(user_config), False
+    for key, retired_values in RETIRED_DEFAULTS.items():
+        if key in cleaned and cleaned[key] in retired_values:
+            del cleaned[key]
+            changed = True
+    cleaned["config_version"] = CONFIG_VERSION
+    return cleaned, True
+
+
 def _load_config() -> dict:
     """Load config from ~/.screenmind/config.json, creating defaults if missing."""
     SCREENMIND_DIR.mkdir(parents=True, exist_ok=True)
@@ -76,6 +112,10 @@ def _load_config() -> dict:
     if CONFIG_PATH.exists():
         with open(CONFIG_PATH) as f:
             user_config = json.load(f)
+        user_config, migrated = _migrate_config(user_config)
+        if migrated:
+            with open(CONFIG_PATH, "w") as f:
+                json.dump(user_config, f, indent=2)
         # Merge with defaults for any missing keys
         merged = {**DEFAULT_CONFIG, **user_config}
         return merged
@@ -176,14 +216,29 @@ def _get_video_metadata(video_path: str) -> dict:
     }
 
 
-def _get_extraction_fps(duration: float) -> float:
-    """Adaptive FPS based on recording duration."""
-    if duration <= 15:
-        return 2.0
-    elif duration <= 60:
-        return 1.0
-    else:
-        return 0.5
+def _get_extraction_fps(duration: float, target_fps: float = 2.0) -> float:
+    """Sampling rate in frames per second.
+
+    Previously this decayed to 0.5 fps for anything over a minute, which is
+    every real screen recording. Density now stays at the configured target;
+    when a long video would blow the frame budget we report the shortfall
+    rather than quietly thinning the sample.
+    """
+    return float(target_fps)
+
+
+def _derive_frame_budget(duration: float, config: dict) -> tuple[int, bool]:
+    """Frames to keep, and whether the ceiling clipped us below target density.
+
+    Returning the clip flag is the point: a shortfall the caller cannot see is
+    how a 53-minute review ended up summarised from 15 frames.
+    """
+    explicit = config.get("default_max_frames")
+    if explicit:
+        return int(explicit), False
+    want = max(1, int(round(duration * float(config.get("target_fps", 2.0)))))
+    ceiling = int(config.get("frame_budget_ceiling", 900))
+    return (ceiling, True) if want > ceiling else (want, False)
 
 
 def _detect_scene_changes(video_path: str, threshold: float) -> list[float]:
@@ -601,7 +656,10 @@ def screenmind_watch(
     session_dir = SESSIONS_DIR / session_id
     session_dir.mkdir(parents=True, exist_ok=True)
 
-    frame_budget = max_frames or config["default_max_frames"]
+    if max_frames:
+        frame_budget, budget_clipped = int(max_frames), False
+    else:
+        frame_budget, budget_clipped = _derive_frame_budget(effective_duration, config)
     ocr_enabled = config["ocr_enabled"]
 
     # Step 1: Detect scene changes
@@ -625,7 +683,9 @@ def screenmind_watch(
             scene_frames.append({"path": out_path, "timestamp": round(ts, 3), "source": "scene_change"})
 
     # Step 3: Extract frames at adaptive FPS
-    extraction_fps = _get_extraction_fps(effective_duration)
+    extraction_fps = _get_extraction_fps(
+        effective_duration, config.get("target_fps", 2.0)
+    )
     raw_dir = str(session_dir / "raw")
     os.makedirs(raw_dir, exist_ok=True)
     fps_frames = _extract_frames_at_fps(
@@ -669,7 +729,13 @@ def screenmind_watch(
         if f["source"] == "scene_change":
             preserve.add(i)
 
-    merged = _dedup_frames(merged, config["dedup_threshold"], preserve)
+    # Dedup is a way to FIT the budget, not a summarisation step. Running it
+    # unconditionally is what turned a 100-frame 2 fps sample into 15 frames on
+    # a static screen recording -- precisely the keyframe-dedup summary that
+    # misses validation errors, console output and partial loads between cuts.
+    # At or under budget, keep every frame.
+    if len(merged) > frame_budget:
+        merged = _dedup_frames(merged, config["dedup_threshold"], preserve)
 
     # Step 5: Select best frames within budget
     selected = _select_best_frames(
@@ -704,6 +770,29 @@ def screenmind_watch(
 
     if focus:
         lines.append(f"**Focus:** {focus}")
+
+    # Achieved density, stated every time. The failure this guards against is
+    # silent: a thin sample reads exactly like a thorough one in the report,
+    # so a reader cannot tell a 15-frame skim from a full pass without being
+    # told. If we came in under target, say so and say what to do about it.
+    target_fps = float(config.get("target_fps", 2.0))
+    achieved_fps = (len(selected) / effective_duration) if effective_duration > 0 else 0.0
+    lines.append(
+        f"**Sample density:** {achieved_fps:.2f} fps "
+        f"({len(selected)} frames over {effective_duration:.0f}s, target {target_fps:.1f} fps)"
+    )
+    if budget_clipped or achieved_fps < target_fps * 0.9:
+        window = int(config.get("frame_budget_ceiling", 900) / target_fps)
+        lines.append("")
+        lines.append(
+            f"> **DENSITY SHORTFALL — this is a partial view.** This pass sampled "
+            f"{achieved_fps:.2f} fps against a {target_fps:.1f} fps standard, so detail "
+            f"between frames was not seen. Do not treat it as an exhaustive review. "
+            f"For full density, re-run over windows of {window}s or less using "
+            f"`start_time` / `end_time` (this recording needs about "
+            f"{max(1, int(effective_duration // window) + 1)} window(s))."
+        )
+        lines.append("")
 
     ssim_available = _get_ssim_func() is not None
     ocr_available = _get_ocr_func() is not None
@@ -903,7 +992,10 @@ def screenmind_status() -> str:
     # Config
     config = _load_config()
     lines.append(f"**Capture dir:** `{config['capture_dir']}`")
-    lines.append(f"**Max frames:** {config['default_max_frames']}")
+    lines.append(
+        f"**Frame budget:** {config['default_max_frames'] or 'auto'} "
+        f"(target {config.get('target_fps', 2.0)} fps, ceiling {config.get('frame_budget_ceiling', 900)})"
+    )
     lines.append(f"**Screen index:** {config['avfoundation_screen_index']}")
 
     # Dependencies
