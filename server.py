@@ -397,8 +397,12 @@ def screenmind_watch(
         ):
             scene_frames.append({"path": out_path, "timestamp": round(ts, 3), "source": "scene_change"})
 
-    # Step 3: adaptive-FPS interval frames
-    extraction_fps = get_extraction_fps(effective_duration)
+    # Step 3: interval frames at the house density, budget permitting
+    extraction_fps = get_extraction_fps(
+        effective_duration,
+        config.get("target_fps", 2.0),
+        config.get("frame_budget_ceiling", 900),
+    )
     raw_dir = str(session_dir / "raw")
     os.makedirs(raw_dir, exist_ok=True)
     fps_frames = extract_frames_at_fps(

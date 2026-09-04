@@ -75,14 +75,27 @@ def parse_frame_rate(fps_str: str) -> float:
         return 30.0
 
 
-def get_extraction_fps(duration: float) -> float:
-    """Adaptive FPS based on clip duration. Short clips → denser sampling."""
-    if duration <= 15:
-        return 2.0
-    elif duration <= 60:
-        return 1.0
-    else:
-        return 0.5
+def get_extraction_fps(duration: float, target_fps: float = 2.0,
+                       ceiling: int = 900) -> float:
+    """Frames per second to sample at. Flat by default.
+
+    This was duration-adaptive: 2.0 up to 15s, 1.0 up to 60s, 0.5 beyond. That
+    silently under-sampled every recording longer than a minute, returning a
+    quarter of the promised density while the shipped contract in
+    skills/screenmind/SKILL.md says "2 frames per second, every frame". A
+    two-minute screen capture is exactly the case the tool exists for, and it
+    was the case that got the least detail.
+
+    The only thing that lowers density now is the frame budget. Past `ceiling`
+    frames (900, which is 7.5 minutes at 2 fps) we sample as densely as the
+    budget allows instead of blowing it. That degrades gracefully at the top
+    end rather than at 61 seconds.
+    """
+    if duration <= 0:
+        return target_fps
+    if duration * target_fps <= ceiling:
+        return target_fps
+    return ceiling / duration
 
 
 def detect_scene_changes(video_path: str, threshold: float) -> list[float]:

@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ### Changed
 
+- Frame sampling is now flat at the documented house standard of 2 fps rather
+  than duration-adaptive. The previous tiers (2 fps to 15s, 1 fps to 60s, 0.5 fps
+  beyond) quietly returned a quarter of the promised density on any recording
+  longer than a minute, which is the case the tool exists for. Density is now
+  lowered only by the 900-frame budget (7.5 minutes at 2 fps), and past that it
+  samples as densely as the budget allows instead of dropping to a fixed tier.
+- `default_max_frames` raised from 15 to 900. The old value silently capped
+  multi-minute captures at 15 frames whenever a caller passed no `max_frames`.
+- `dedup_threshold` raised from 0.95 to 0.995, so only virtually identical
+  frames are dropped. 0.95 behaved as a keyframe summariser and discarded real
+  UI changes.
+
 ### Fixed
 
 ## [0.3.0] - 2026-05-19

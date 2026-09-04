@@ -28,22 +28,30 @@ def test_parse_frame_rate_falls_back_to_30(malformed):
     assert parse_frame_rate(malformed) == 30.0
 
 
-def test_extraction_fps_short_clip():
-    # Short clip → dense sampling
-    assert get_extraction_fps(5) == 2.0
-    assert get_extraction_fps(15) == 2.0
+def test_extraction_fps_is_flat_at_the_house_standard():
+    # 2 fps, every frame, is the shipped contract (SKILL.md). Duration alone
+    # must not lower it: the old 15s/60s tiers quietly quartered the density
+    # on exactly the multi-minute captures this tool exists for.
+    for duration in (5, 15, 15.1, 60, 60.1, 300, 450):
+        assert get_extraction_fps(duration) == 2.0, f"{duration}s should stay at 2 fps"
 
 
-def test_extraction_fps_medium_clip():
-    # 15 < d <= 60 → 1 fps
-    assert get_extraction_fps(15.1) == 1.0
-    assert get_extraction_fps(60) == 1.0
+def test_extraction_fps_degrades_only_at_the_frame_budget():
+    # 900 frames is 7.5 minutes at 2 fps. At the boundary we are still flat.
+    assert get_extraction_fps(450) == 2.0
+    # Past it, sample as densely as the budget allows rather than blowing it.
+    assert get_extraction_fps(900) == 1.0
+    assert get_extraction_fps(1800) == 0.5
+    # And never exceed the budget, whatever the duration.
+    for duration in (451, 900, 1800, 7200):
+        assert get_extraction_fps(duration) * duration <= 900 + 1e-9
 
 
-def test_extraction_fps_long_clip():
-    # > 60s → 0.5 fps
-    assert get_extraction_fps(60.1) == 0.5
-    assert get_extraction_fps(600) == 0.5
+def test_extraction_fps_honours_overrides():
+    assert get_extraction_fps(100, target_fps=4.0) == 4.0
+    assert get_extraction_fps(100, target_fps=4.0, ceiling=200) == 2.0
+    # A zero or negative duration must not divide by zero.
+    assert get_extraction_fps(0) == 2.0
 
 
 @pytest.mark.parametrize("bad_fps", [0, -1, -0.5])

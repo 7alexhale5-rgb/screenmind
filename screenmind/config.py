@@ -12,10 +12,19 @@ DEFAULT_CONFIG = {
     "capture_dir": "~/Desktop",
     "file_patterns": ["*.mov", "*.mp4", "*.mkv"],
     "max_recording_duration": 120,
-    "default_max_frames": 15,
+    # The house standard is 2 fps, every frame, for anything the user drops
+    # (skills/screenmind/SKILL.md). It used to be opt-in via max_frames and
+    # every one of the first 8 real calls missed it; 4 passed no max_frames at
+    # all and silently got 15 frames for a multi-minute recording. A safe path
+    # nobody takes is not a safe path, so the standard is now the default.
+    "target_fps": 2.0,
+    "default_max_frames": 900,   # 7.5 min at 2 fps; the budget, not a summary
+    "frame_budget_ceiling": 900,
     "frame_quality": 80,
     "frame_max_width": 1280,
-    "dedup_threshold": 0.95,
+    # Drop only virtually identical frames. 0.95 was a keyframe-dedup
+    # summariser that discarded real UI changes between them.
+    "dedup_threshold": 0.995,
     "scene_change_threshold": 0.3,
     "ocr_enabled": True,
     "audio_transcription_enabled": True,
