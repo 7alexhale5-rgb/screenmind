@@ -24,6 +24,7 @@ from screenmind.config import (
     SESSIONS_DIR,
     load_config,
 )
+from screenmind.density import density_lines
 from screenmind.ffmpeg import (
     detect_scene_changes,
     extract_frame_at_timestamp,
@@ -384,7 +385,15 @@ def screenmind_watch(
     ocr_enabled = config["ocr_enabled"]
 
     # Step 1: scene detection
-    scene_timestamps = detect_scene_changes(video_path, config["scene_change_threshold"])
+    # The scan covers the whole file, so its timeout scales with the file, not the window.
+    scene_timestamps = detect_scene_changes(
+        video_path, config["scene_change_threshold"], meta["duration"],
+    )
+    scene_status = None
+    if scene_timestamps is None:
+        # Degrade, don't die: keep the interval pass, report that scenes were skipped.
+        scene_status = "timed out; scene frames skipped, interval frames only"
+        scene_timestamps = []
     scene_timestamps = [ts for ts in scene_timestamps if effective_start <= ts <= effective_end]
 
     # Step 2: scene-change frames at exact timestamps
@@ -409,6 +418,7 @@ def screenmind_watch(
         video_path, raw_dir, extraction_fps,
         config["frame_quality"], config["frame_max_width"],
         start_time=start_time, end_time=end_time,
+        duration=effective_duration,
     )
     for f in fps_frames:
         f["source"] = "interval"
@@ -439,7 +449,9 @@ def screenmind_watch(
     for i, f in enumerate(merged):
         if f["source"] == "scene_change":
             preserve.add(i)
+    before_dedup = len(merged)
     merged = _dedup_frames(merged, config["dedup_threshold"], preserve)
+    kept_after_dedup = len(merged)
 
     # Step 5: smart selection within budget (runs OCR as it goes)
     selected = _select_best_frames(merged, frame_budget, scene_timestamps, ocr_enabled)
@@ -471,11 +483,24 @@ def screenmind_watch(
     lines = [
         "# ScreenMind Session Report",
         "",
+        *density_lines(
+            duration=effective_duration,
+            target_fps=config.get("target_fps", 2.0),
+            extraction_fps=extraction_fps,
+            interval_extracted=len(fps_frames),
+            scene_extracted=len(scene_frames),
+            before_dedup=before_dedup,
+            kept_after_dedup=kept_after_dedup,
+            retained=len(selected),
+            ceiling=config.get("frame_budget_ceiling", 900),
+            scene_status=scene_status,
+        ),
+        "",
         f"**Recording:** `{video_path}`",
         f"**Duration:** {meta['duration']:.1f}s ({meta['width']}x{meta['height']} @ {meta['fps']:.1f}fps, {meta['codec']})",
         f"**Time range:** {effective_start:.1f}s – {effective_end:.1f}s",
         f"**Frames retained:** {len(selected)} (from {len(fps_frames) + len(scene_frames)} extracted)",
-        f"**Scene changes detected:** {len(scene_timestamps)}",
+        f"**Scene changes detected:** {scene_status or len(scene_timestamps)}",
         f"**Session:** `{session_dir}`",
     ]
     if focus:

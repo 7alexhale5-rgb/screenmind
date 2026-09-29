@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ### Added
 
+- Every `screenmind_watch` report now opens with a **Sample density** line:
+  target fps and frame count, the rate actually sampled, interval and scene
+  frames extracted, frames kept after SSIM dedup, and frames retained. When
+  retained frames fall under duration x target fps, a `DENSITY SHORTFALL`
+  block lists why (dedup, frame budget with the number of windows to re-run,
+  a `max_frames` skim, a thin interval pass, or a skipped scene pass).
+  `skills/screenmind/SKILL.md` already promised this; the server never printed it.
+
 ### Changed
 
 - Frame sampling is now flat at the documented house standard of 2 fps rather
@@ -24,6 +32,14 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
   UI changes.
 
 ### Fixed
+
+- A 190.9s 1320x2868 @ 60fps iPhone capture hit the flat 120s timeout in scene
+  detection and the `TimeoutExpired` killed the whole `screenmind_watch` call.
+  The scene pass now drops to 10 fps and 480px wide before scoring and skips
+  audio decode; both decode passes get a timeout of `max(120s, duration)`; and a
+  scene-pass timeout now skips scene frames and keeps the interval pass instead
+  of raising. At 10 fps the scene score compares frames 0.1s apart, so the same
+  0.3 threshold finds more changes (27 vs 14 on that capture).
 
 ## [0.3.0] - 2026-05-19
 
