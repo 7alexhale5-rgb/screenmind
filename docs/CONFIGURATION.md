@@ -13,10 +13,12 @@ See also: [`USAGE.md`](./USAGE.md) for usage examples, [`ARCHITECTURE.md`](./ARC
 | `capture_dir`                 | `"~/Desktop"`                 | Where ScreenMind looks for recordings and writes new ones from `screenmind_record_start`.  |
 | `file_patterns`               | `["*.mov", "*.mp4", "*.mkv"]` | Glob patterns used by `screenmind_list` and the "latest recording" auto-pick.              |
 | `max_recording_duration`      | `120`                         | Hard cap (seconds) on `screenmind_record_start` runs.                                      |
-| `default_max_frames`          | `15`                          | Frame budget per `screenmind_watch` call, before any per-call override.                    |
+| `target_fps`                  | `2.0`                         | Interval sampling rate for `screenmind_watch`.                                             |
+| `default_max_frames`          | `900`                         | Frame budget per `screenmind_watch` call, before any per-call override.                    |
+| `frame_budget_ceiling`        | `900`                         | Frames per pass before sampling drops below `target_fps`.                                  |
 | `frame_quality`               | `80`                          | JPEG quality target (1–100) for extracted frames.                                          |
 | `frame_max_width`             | `1280`                        | Max width (px) for extracted frames. Aspect ratio preserved.                               |
-| `dedup_threshold`             | `0.95`                        | SSIM similarity above which two consecutive frames count as duplicates and one is dropped. |
+| `dedup_threshold`             | `0.995`                       | SSIM similarity above which two consecutive frames count as duplicates and one is dropped. |
 | `scene_change_threshold`      | `0.3`                         | ffmpeg `select='gt(scene,T)'` threshold for detecting scene cuts.                          |
 | `ocr_enabled`                 | `true`                        | Whether to run OCR on kept frames. Off → faster runs, no `**Visible text:**` blocks.       |
 | `audio_transcription_enabled` | `true`                        | Whether to extract audio and run Whisper transcription during `screenmind_watch`.          |
@@ -61,10 +63,10 @@ Example:
 
 ## `default_max_frames`
 
-- **Default:** `15`
+- **Default:** `900` (7.5 minutes at 2 fps)
 - **What:** Frame budget for a `screenmind_watch` call. After scene detection, interval extraction, merging, and SSIM dedup, the pipeline trims down to this number using a priority order (see [`ARCHITECTURE.md`](./ARCHITECTURE.md)).
-- **When to change:** You routinely deal with dense recordings (raise to 25–40) or quick scans (drop to 6–10).
-- **Tuning:** Each frame adds OCR time and Claude context tokens. 15 is a reasonable middle ground; numbers over ~40 start to feel slow.
+- **When to change:** Rarely. A lower value turns every call into a skim, and the report's `DENSITY SHORTFALL` block will say frames were cut to fit the budget. For long recordings, window with `start_time`/`end_time` instead.
+- **Tuning:** Each frame adds OCR time. The old default of 15 silently summarised multi-minute recordings; a hand-set value in `config.json` still overrides the default.
 
 ---
 
@@ -88,15 +90,15 @@ Example:
 
 ## `dedup_threshold`
 
-- **Default:** `0.95`
+- **Default:** `0.995`
 - **What:** SSIM (Structural Similarity Index) threshold. If two consecutive frames score **above** this value, the second is considered a duplicate and its file is deleted. SSIM ranges from -1 to 1; 1.0 is identical.
 - **When to change:** Too many near-duplicates surviving → lower to `0.90`. Important small changes (a single character changing) being dropped → raise to `0.98`.
 - **Tuning:** SSIM is computed on grayscale at the smaller of the two frame sizes. First, last, and scene-change frames are always preserved regardless of similarity score. Requires `scikit-image`; if missing, dedup is a no-op and `**SSIM dedup:** unavailable` appears in the report.
 
 A quick mental model:
 
-- `0.99` → only exact duplicates dropped
-- `0.95` → near-identical frames dropped (default — good middle)
+- `0.995` → only virtually identical frames dropped (default)
+- `0.95` → near-identical frames dropped; acts as a keyframe summariser and can discard real UI changes
 - `0.90` → drops anything that looks roughly the same to a human eye
 - `0.80` → aggressive, will likely drop legitimate transitions
 
@@ -185,7 +187,7 @@ The number in brackets is the index. Set it as a string in the config:
 ├── sessions/                   # Per-watch outputs. Persistent across runs.
 │   └── <session_id>/           # session_id = "<unix_ts>_<video_stem>"
 │       ├── scene_<ts>.jpg      # Frame extracted at a scene-change timestamp.
-│       └── frame_<NNNNN>.jpg   # Frame extracted at the adaptive interval rate.
+│       └── frame_<NNNNN>.jpg   # Frame extracted at the interval rate (2 fps).
 └── downloads/                  # yt-dlp output for URL inputs.
     └── <title>_<id>.mp4        # Downloaded video. Reusable — re-running on the same URL re-downloads.
 ```

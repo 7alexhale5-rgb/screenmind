@@ -24,7 +24,8 @@ Local MCP server that turns a screen recording into keyframes + OCR + a timeline
 - Binary paths cached after first lookup; `/opt/homebrew/bin/` checked first for Apple Silicon
 - SSIM, OCR, yt-dlp, and faster-whisper imported inside functions with try/except — graceful degradation if any are missing
 - URL detection via `urllib.parse.urlparse` (scheme http/https + netloc); downloads via yt-dlp with `--no-playlist --merge-output-format mp4`
-- Adaptive extraction FPS: ≤15s → 2fps, ≤60s → 1fps, else 0.5fps
+- Flat 2 fps extraction (`target_fps`); only the 900-frame budget (`frame_budget_ceiling`) lowers it, and the report's Sample density line + DENSITY SHORTFALL block say when it did
+- Scene pass prefilters to `fps=10,scale=480:-2`; decode passes time out at `max(120s, duration)`; a scene-pass timeout skips scene frames instead of failing the call
 - Frame selection priority when over budget: first/last → scene change → OCR text change (>30% character delta) → even distribution
 - Recording shutdown sends SIGINT first (clean ffmpeg trailer write), falls back to SIGKILL after 10s timeout
 - `screenmind_wait_for_change` hard-caps `max_wait_seconds` at 600 and minimum `poll_interval` at 0.5s to bound long-poll cost
@@ -66,8 +67,8 @@ claude mcp add screenmind -- /path/to/screenmind/.venv/bin/python /path/to/scree
 `~/.screenmind/config.json` — created on first run. Highest-impact keys:
 
 - `capture_dir` — where to find/save recordings (default: `~/Desktop`)
-- `default_max_frames` — frame budget per session (default: 15)
-- `dedup_threshold` — SSIM threshold above which frames count as duplicates (default: 0.95)
+- `default_max_frames` — frame budget per session (default: 900, 7.5 min at 2 fps)
+- `dedup_threshold` — SSIM threshold above which frames count as duplicates (default: 0.995)
 - `scene_change_threshold` — ffmpeg scene-detect sensitivity, 0.0–1.0 (default: 0.3)
 - `whisper_model` — faster-whisper model name (default: `tiny.en`)
 - `audio_transcription_enabled` — toggle the transcript pass (default: `true`)
@@ -79,8 +80,8 @@ Full reference: `docs/CONFIGURATION.md`.
 ## Files in this repo
 
 - `server.py` — MCP tool registrations + frame pipeline + recording state
-- `screenmind/` — testable package: `config.py`, `ffmpeg.py`, `url_ingest.py`, `util.py`
-- `tests/` — pytest suite (config merge, URL detection, ffmpeg frame-rate parsing, adaptive FPS)
+- `screenmind/` — testable package: `config.py`, `density.py`, `ffmpeg.py`, `url_ingest.py`, `util.py`
+- `tests/` — pytest suite (config merge, URL detection, ffmpeg frame-rate parsing, extraction FPS, scene pass, density report, end-to-end watch)
 - `install.sh` — installer; bootstraps `.venv`, ensures ffmpeg/tesseract, prints the exact `claude mcp add` registration command
 - `new-recording-notify.sh` — launchd helper that fires a macOS notification when a new recording lands in `capture_dir`
 - `requirements.txt` — runtime deps (`fastmcp>=2.0.0`); optional deps commented inline

@@ -13,7 +13,7 @@ DEFAULT_CONFIG = {
     "file_patterns": ["*.mov", "*.mp4", "*.mkv"],
     "max_recording_duration": 120,
     # The house standard is 2 fps, every frame, for anything the user drops
-    # (skills/screenmind/SKILL.md). It used to be opt-in via max_frames and
+    # (~/.claude/skills/screenmind/SKILL.md). It used to be opt-in via max_frames and
     # every one of the first 8 real calls missed it; 4 passed no max_frames at
     # all and silently got 15 frames for a multi-minute recording. A safe path
     # nobody takes is not a safe path, so the standard is now the default.

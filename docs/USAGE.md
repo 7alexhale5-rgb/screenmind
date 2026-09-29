@@ -179,7 +179,7 @@ This does not change the frame selection algorithm itself — selection is mecha
 
 ## Power-user: tuning frame budget
 
-Default is 15 frames per session. Override per call with `max_frames`.
+Default is 2 fps up to 900 frames per session. Passing `max_frames` overrides that with a fixed budget, and the report's `DENSITY SHORTFALL` block will say frames were cut.
 
 Dense recording (lots of UI changes, code editing, fast clicks):
 
