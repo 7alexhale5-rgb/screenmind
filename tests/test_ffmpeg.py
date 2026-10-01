@@ -71,3 +71,79 @@ def test_extract_frames_at_fps_rejects_non_positive_fps(bad_fps, tmp_path):
             quality=80,
             max_width=1280,
         )
+
+
+# --- scene detection on long, high-res captures -----------------------------
+# 2026-09-29: a 190.9s 1320x2868 @ 60fps iPhone capture hit the flat 120s
+# timeout in the scene pass and the TimeoutExpired killed screenmind_watch.
+
+
+def test_pass_timeout_scales_with_duration_above_the_old_floor():
+    from screenmind.ffmpeg import pass_timeout
+
+    assert pass_timeout(0) == 120.0
+    assert pass_timeout(60) == 120.0
+    assert pass_timeout(190.9) == 190.9
+    assert pass_timeout(3180) == 3180
+
+
+def _capture_run(monkeypatch, stderr="", exc=None):
+    """Patch find_binary + subprocess.run in screenmind.ffmpeg; return the call log."""
+    import subprocess
+
+    import screenmind.ffmpeg as ff
+
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append({"cmd": cmd, **kwargs})
+        if exc is not None:
+            raise exc
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr=stderr)
+
+    monkeypatch.setattr(ff, "find_binary", lambda name: "/usr/bin/" + name)
+    monkeypatch.setattr(ff.subprocess, "run", fake_run)
+    return calls
+
+
+def test_scene_pass_downscales_and_drops_fps_before_scoring(monkeypatch):
+    from screenmind.ffmpeg import detect_scene_changes
+
+    calls = _capture_run(monkeypatch)
+    detect_scene_changes("/v.mov", 0.3, duration=190.9)
+
+    cmd = calls[0]["cmd"]
+    vf = cmd[cmd.index("-vf") + 1]
+    # The prefilter must come BEFORE select, or the scene score still runs at full size.
+    assert vf.startswith("fps=10,scale=480:-2,select='gt(scene,0.3)'")
+    assert "-an" in cmd and cmd.index("-an") < cmd.index("-i")
+    assert calls[0]["timeout"] == 190.9
+
+
+def test_scene_pass_parses_real_pts_times(monkeypatch):
+    from screenmind.ffmpeg import detect_scene_changes
+
+    stderr = (
+        "[Parsed_showinfo_3 @ 0x1] n:   0 pts:  12 pts_time:1.2 duration:1\n"
+        "noise line\n"
+        "[Parsed_showinfo_3 @ 0x1] n:   1 pts: 473 pts_time:47.3 duration:1\n"
+    )
+    _capture_run(monkeypatch, stderr=stderr)
+    assert detect_scene_changes("/v.mov", 0.3, duration=60) == [1.2, 47.3]
+
+
+def test_scene_pass_timeout_returns_none_instead_of_raising(monkeypatch):
+    import subprocess
+
+    from screenmind.ffmpeg import detect_scene_changes
+
+    _capture_run(monkeypatch, exc=subprocess.TimeoutExpired(cmd="ffmpeg", timeout=190.9))
+    assert detect_scene_changes("/v.mov", 0.3, duration=190.9) is None
+
+
+def test_interval_pass_timeout_scales_with_window(monkeypatch, tmp_path):
+    from screenmind.ffmpeg import extract_frames_at_fps
+
+    calls = _capture_run(monkeypatch)
+    extract_frames_at_fps("/v.mov", str(tmp_path), 2.0, 80, 1280, duration=450)
+    assert calls[0]["timeout"] == 450

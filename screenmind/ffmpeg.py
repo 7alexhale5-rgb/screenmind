@@ -82,7 +82,7 @@ def get_extraction_fps(duration: float, target_fps: float = 2.0,
     This was duration-adaptive: 2.0 up to 15s, 1.0 up to 60s, 0.5 beyond. That
     silently under-sampled every recording longer than a minute, returning a
     quarter of the promised density while the shipped contract in
-    skills/screenmind/SKILL.md says "2 frames per second, every frame". A
+    ~/.claude/skills/screenmind/SKILL.md says "2 frames per second, every frame". A
     two-minute screen capture is exactly the case the tool exists for, and it
     was the case that got the least detail.
 
@@ -98,19 +98,47 @@ def get_extraction_fps(duration: float, target_fps: float = 2.0,
     return ceiling / duration
 
 
-def detect_scene_changes(video_path: str, threshold: float) -> list[float]:
-    """Detect scene-change timestamps using ffmpeg showinfo. Parses real pts_time."""
+def pass_timeout(duration: float) -> float:
+    """Subprocess timeout for a full decode pass over `duration` seconds of video.
+
+    A flat 120s killed screenmind_watch on a 190.9s 1320x2868 60fps iPhone
+    capture (2026-09-29). Idle, that file decodes in ~13s, so the pass is not
+    slow on its own; the likely cause was a loaded machine (15-minute load
+    average near 40 that afternoon), and HEVC decode is CPU-bound. Allow real
+    time, never less than the old 120s floor.
+    """
+    return max(120.0, duration)
+
+
+# Scene detection only needs to see that the screen changed, not read it. Decode
+# once, drop to 10 fps and 480px wide, then score. Timestamps are still the
+# source's real pts_time.
+SCENE_PREFILTER = "fps=10,scale=480:-2"
+
+
+def detect_scene_changes(video_path: str, threshold: float,
+                         duration: float = 0.0) -> Optional[list[float]]:
+    """Detect scene-change timestamps using ffmpeg showinfo. Parses real pts_time.
+
+    Returns None when the pass times out, so the caller can skip scene frames
+    and keep the interval pass instead of losing the whole call.
+    """
     ffmpeg = find_binary("ffmpeg")
     if not ffmpeg:
         return []
 
     cmd = [
-        ffmpeg, "-i", video_path,
-        "-vf", f"select='gt(scene,{threshold})',showinfo",
+        ffmpeg, "-an", "-sn", "-dn",
+        "-i", video_path,
+        "-vf", f"{SCENE_PREFILTER},select='gt(scene,{threshold})',showinfo",
         "-vsync", "vfr",
         "-f", "null", "-",
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True,
+                                timeout=pass_timeout(duration))
+    except subprocess.TimeoutExpired:
+        return None
 
     timestamps: list[float] = []
     for line in result.stderr.splitlines():
@@ -147,8 +175,12 @@ def extract_frames_at_fps(
     quality: int, max_width: int,
     start_time: Optional[float] = None,
     end_time: Optional[float] = None,
+    duration: float = 0.0,
 ) -> list[dict]:
-    """Extract frames at a given FPS rate. Returns list of {path, timestamp}."""
+    """Extract frames at a given FPS rate. Returns list of {path, timestamp}.
+
+    `duration` is the length of the window being decoded; it only sizes the timeout.
+    """
     if fps <= 0:
         # ffmpeg's fps filter would emit garbage; downstream `i / fps` would also blow up.
         raise ValueError(f"fps must be positive, got {fps}")
@@ -171,7 +203,8 @@ def extract_frames_at_fps(
         "-q:v", str(max(1, min(31, (100 - quality) * 31 // 100))),
         "-y", pattern,
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    result = subprocess.run(cmd, capture_output=True, text=True,
+                            timeout=pass_timeout(duration))
     if result.returncode != 0:
         raise RuntimeError(f"Frame extraction failed: {result.stderr[:500]}")
 

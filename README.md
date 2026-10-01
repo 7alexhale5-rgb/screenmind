@@ -49,7 +49,7 @@ First call to `screenmind_status` confirms the install.
 
 - **Local files and URLs** — `.mov`, `.mp4`, `.mkv` from disk, or any video URL yt-dlp supports
 - **Real scene detection** — ffmpeg `showinfo` filter, timestamps parsed from `pts_time:` (never estimated)
-- **Adaptive FPS extraction** — 2fps for short clips, 0.5fps for long ones, based on duration
+- **2 fps extraction** — every recording sampled at 2 fps up to a 900-frame budget; each report opens with a Sample density line and flags any shortfall
 - **SSIM deduplication** — drops near-identical frames while preserving first, last, and scene-change frames
 - **OCR** — tesseract extracts visible text from each retained frame
 - **Audio transcription** — `faster-whisper` adds a timestamped transcript to each `screenmind_watch` report (v0.3.0)
@@ -179,7 +179,7 @@ screenmind_status                # recording state + dependency probe
 
 1. **ffprobe metadata** — duration, resolution, fps, codec. Frame rate parsed by splitting `r_frame_rate` on `/` (no arbitrary code execution).
 2. **Scene detection** — ffmpeg `select='gt(scene,THRESHOLD)',showinfo` filter. Real timestamps parsed from the `pts_time:` field in stderr — never estimated.
-3. **Adaptive FPS extraction** — `≤15s → 2fps`, `≤60s → 1fps`, `else 0.5fps`. Honors `start_time`/`end_time` via ffmpeg `-ss`/`-t`.
+3. **Interval extraction at 2 fps** — flat `target_fps`, lowered only past the 900-frame budget. Honors `start_time`/`end_time` via ffmpeg `-ss`/`-t`.
 4. **Scene + interval merge** — scene-change frames extracted at exact timestamps and merged with interval frames. When two frames fall within `0.3s` of each other, the `scene_change` frame wins.
 5. **SSIM deduplication** — `skimage.metrics.structural_similarity` drops near-identical frames against `dedup_threshold`. First, last, and all scene-change frames are always preserved.
 6. **Best-frame selection within budget** — when frames exceed `max_frames`, priority order is: first/last → scene changes → frames with OCR text changes (>30% character delta) → even distribution to fill remaining slots.
@@ -210,10 +210,12 @@ See [docs/POSITIONING.md](docs/POSITIONING.md) for the naming landscape and how 
 | `capture_dir`                 | `~/Desktop`                   | Where recordings are saved and discovered                                                            |
 | `file_patterns`               | `["*.mov", "*.mp4", "*.mkv"]` | Glob patterns used by `screenmind_list` and "latest recording" lookup                                |
 | `max_recording_duration`      | `120`                         | Max seconds for `screenmind_record_start`                                                            |
-| `default_max_frames`          | `15`                          | Frame budget per `screenmind_watch` call                                                             |
+| `target_fps`                  | `2.0`                         | Interval sampling rate for `screenmind_watch`                                                        |
+| `default_max_frames`          | `900`                         | Frame budget per `screenmind_watch` call (7.5 min at 2 fps)                                          |
+| `frame_budget_ceiling`        | `900`                         | Past this many frames, sampling drops below `target_fps` and the report says so                      |
 | `frame_quality`               | `80`                          | JPEG quality, 1-100 (mapped to ffmpeg `-q:v`)                                                        |
 | `frame_max_width`             | `1280`                        | Max output frame width; aspect ratio preserved                                                       |
-| `dedup_threshold`             | `0.95`                        | SSIM score above which frames are treated as duplicates (higher = more aggressive dedup)             |
+| `dedup_threshold`             | `0.995`                       | SSIM score above which frames are treated as duplicates (lower = more aggressive dedup)              |
 | `scene_change_threshold`      | `0.3`                         | ffmpeg scene score cutoff (lower = more scenes detected)                                             |
 | `ocr_enabled`                 | `true`                        | Toggle tesseract OCR pass                                                                            |
 | `audio_transcription_enabled` | `true`                        | Toggle the Whisper transcript pass in `screenmind_watch`                                             |

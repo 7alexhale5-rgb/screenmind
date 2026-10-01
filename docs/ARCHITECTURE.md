@@ -22,7 +22,7 @@ Why not return base64-encoded images directly?
 Scene change timestamps come from ffmpeg's `select` and `showinfo` filters:
 
 ```text
-ffmpeg -i <video> -vf "select='gt(scene,0.3)',showinfo" -vsync vfr -f null -
+ffmpeg -an -sn -dn -i <video> -vf "fps=10,scale=480:-2,select='gt(scene,0.3)',showinfo" -vsync vfr -f null -
 ```
 
 The `scene` value is ffmpeg's built-in 0–1 scene-similarity score. Frames scoring above `scene_change_threshold` survive the `select`. `showinfo` then prints diagnostic info per surviving frame to stderr, including a line like:
@@ -35,29 +35,25 @@ ScreenMind parses `pts_time:` directly with the regex `r"pts_time:\s*([\d.]+)"`.
 
 The `-vsync vfr` tells ffmpeg to preserve original frame timing rather than resample to a constant rate. `-f null -` discards the actual output — we only care about the stderr metadata.
 
-The whole pass runs with a 120s timeout. Long recordings can still bust this if scene detection is slow; in that case `_detect_scene_changes` returns whatever it parsed before the timeout (effectively `[]` if ffmpeg got killed before any output reached stderr).
+The `fps=10,scale=480:-2` prefilter runs before scoring, so the scene score works on small frames 0.1s apart. Timestamps are still the source's real `pts_time`. Decoding the full-resolution video is most of the cost: a 190.9s 1320x2868 60fps HEVC iPhone capture takes about 13s idle.
+
+The pass times out at `max(120s, file duration)`. On timeout `detect_scene_changes` returns `None`; `screenmind_watch` then skips scene frames, keeps the interval pass, and says so in the report. A flat 120s timeout used to raise `TimeoutExpired` and kill the whole call on exactly that iPhone capture when the machine was loaded.
 
 ---
 
-## Adaptive FPS for interval extraction
+## Interval extraction at 2 fps
 
-After scene detection, the pipeline runs a second pass that extracts frames at a fixed FPS to fill in coverage between scene changes. The FPS depends on the effective duration of the segment being analyzed:
+After scene detection, the pipeline runs a second pass that extracts frames at a fixed rate to fill in coverage between scene changes. The rate is `target_fps` (2.0) for any duration. `get_extraction_fps(duration)` lowers it only when `duration * target_fps` would pass `frame_budget_ceiling` (900 frames, 7.5 minutes), and then samples as densely as the budget allows. The "effective duration" is `end_time - start_time` when a window is provided, otherwise the full video duration.
 
-| Effective duration | Extraction FPS | Rationale                                                         |
-| ------------------ | -------------- | ----------------------------------------------------------------- |
-| ≤ 15 seconds       | 2.0 fps        | Short clips often pack tight interaction sequences — need density |
-| ≤ 60 seconds       | 1.0 fps        | Standard demo / Reel length — one frame per second is enough      |
-| > 60 seconds       | 0.5 fps        | Long tutorials — keep total frames under control                  |
+This used to be a step function (2 fps to 15s, 1 fps to 60s, 0.5 fps beyond). It quietly returned a quarter of the promised density on every recording over a minute, which is the case the tool exists for.
 
-Implementation is `_get_extraction_fps(duration)`. The "effective duration" is `end_time - start_time` when a window is provided, otherwise the full video duration.
-
-Why a step function and not a smooth curve? Because the frame budget is fixed (`max_frames`, default 15). A linear FPS would either run out of budget on long videos or under-sample short ones. The buckets keep the total raw extraction count in a workable range for the dedup and selection passes downstream.
+Every report opens with a **Sample density** line built by `screenmind/density.py`: target frames, the rate sampled, frames extracted, kept after SSIM dedup, and retained. When retained frames fall under `duration * target_fps`, a `DENSITY SHORTFALL` block names each cause: dedup, the frame budget (with how many windows to re-run), a `max_frames` skim, a thin interval pass, or a skipped scene pass.
 
 ---
 
 ## SSIM dedup — drop the static moments
 
-Once scene frames and interval frames are merged, the pipeline runs SSIM (Structural Similarity Index) on consecutive frames using `skimage.metrics.structural_similarity`. Frames scoring above `dedup_threshold` (default `0.95`) are dropped and their files deleted.
+Once scene frames and interval frames are merged, the pipeline runs SSIM (Structural Similarity Index) on consecutive frames using `skimage.metrics.structural_similarity`. Frames scoring above `dedup_threshold` (default `0.995`) are dropped and their files deleted.
 
 Two important guarantees:
 
@@ -187,12 +183,12 @@ A malformed fps string raises a clear `ValueError` from `float()` rather than ru
 **`subprocess` arguments are always lists, never `shell=True`.** Every `subprocess.run` and `subprocess.Popen` call passes a list of strings:
 
 ```python
-cmd = [ffmpeg, "-i", video_path, "-vf", f"select='gt(scene,{threshold})',showinfo", ...]
-subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+cmd = [ffmpeg, "-an", "-sn", "-dn", "-i", video_path, "-vf", f"{SCENE_PREFILTER},select='gt(scene,{threshold})',showinfo", ...]
+subprocess.run(cmd, capture_output=True, text=True, timeout=pass_timeout(duration))
 ```
 
 This means shell metacharacters in the video path can't trigger command injection — they're passed as a single argument to the executable. Paths with spaces, quotes, or backticks are safe. The only string interpolation is into ffmpeg filter expressions where the inputs are numeric config values (`threshold`, `fps`, `max_width`).
 
-**Timeouts on every external call.** `ffprobe` (30s), `_detect_scene_changes` (120s), `_extract_frame_at_timestamp` (30s), `_extract_frames_at_fps` (120s), `_download_url` (300s). A wedged subprocess can't hang the MCP server indefinitely.
+**Timeouts on every external call.** `ffprobe` (30s), `detect_scene_changes` (`max(120s, duration)`), `extract_frame_at_timestamp` (30s), `extract_frames_at_fps` (`max(120s, duration)`), `_download_url` (300s). A wedged subprocess can't hang the MCP server indefinitely.
 
 **No code executed from downloads.** `yt-dlp` is invoked with `--no-playlist` and `--print after_move:filepath` so the only thing we read from its output is the final file path on disk. We do not source or execute any of the downloaded content beyond passing it back through ffprobe and ffmpeg.
